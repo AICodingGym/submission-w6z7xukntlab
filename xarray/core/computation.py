@@ -1744,7 +1744,10 @@ def where(cond, x, y, keep_attrs=None):
     y : scalar, array, Variable, DataArray or Dataset
         values to choose from where `cond` is False
     keep_attrs : bool or str or callable, optional
-        How to treat attrs. If True, keep the attrs of `x`.
+        How to treat attrs. If True, keep the attrs of `x` (and, for a
+        Dataset, the attrs of its data variables); coordinate attrs are
+        kept. If False, drop attrs. A str or callable is passed on to
+        ``apply_ufunc``. Defaults to the global ``keep_attrs`` option.
 
     Returns
     -------
@@ -1812,6 +1815,8 @@ def where(cond, x, y, keep_attrs=None):
     """
     if keep_attrs is None:
         keep_attrs = _get_keep_attrs(default=False)
+    if isinstance(keep_attrs, (bool, np.bool_)):
+        keep_attrs = bool(keep_attrs)
 
     # keep the attributes of x, the second parameter, to be consistent with
     # the `where` method of `DataArray` and `Dataset`. Coordinates keep their
