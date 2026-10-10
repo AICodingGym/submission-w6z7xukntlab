@@ -1813,13 +1813,15 @@ def where(cond, x, y, keep_attrs=None):
     if keep_attrs is None:
         keep_attrs = _get_keep_attrs(default=False)
 
-    if keep_attrs is True:
-        # keep the attributes of x, the second parameter, by default to
-        # be consistent with the `where` method of `DataArray` and `Dataset`
-        keep_attrs = lambda attrs, context: getattr(x, "attrs", {})
+    # keep the attributes of x, the second parameter, to be consistent with
+    # the `where` method of `DataArray` and `Dataset`. Coordinates keep their
+    # own attrs ("override"); the result's attrs are taken from x afterwards.
+    keep_attrs_of_x = keep_attrs is True
+    if keep_attrs_of_x:
+        keep_attrs = "override"
 
     # alignment for three arguments is complicated, so don't support it yet
-    return apply_ufunc(
+    result = apply_ufunc(
         duck_array_ops.where,
         cond,
         x,
@@ -1829,6 +1831,26 @@ def where(cond, x, y, keep_attrs=None):
         dask="allowed",
         keep_attrs=keep_attrs,
     )
+
+    if keep_attrs_of_x:
+        from .dataset import Dataset
+
+        x_attrs = getattr(x, "attrs", {})
+        if isinstance(result, Dataset):
+            x_vars = x.data_vars if isinstance(x, Dataset) else {}
+            for name in result.data_vars:
+                if name in x_vars:
+                    attrs = x_vars[name].attrs
+                elif isinstance(x, Dataset):
+                    attrs = {}
+                else:
+                    attrs = x_attrs
+                result.variables[name].attrs = dict(attrs)
+            result.attrs = dict(x_attrs) if isinstance(x, Dataset) else {}
+        elif hasattr(result, "attrs"):
+            result.attrs = dict(x_attrs)
+
+    return result
 
 
 def polyval(coord, coeffs, degree_dim="degree"):
