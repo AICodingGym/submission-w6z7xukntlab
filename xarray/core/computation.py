@@ -1814,13 +1814,12 @@ def where(cond, x, y, keep_attrs=None):
         keep_attrs = _get_keep_attrs(default=False)
 
     if keep_attrs is True:
-        # keep the attributes of x, the second parameter, to be consistent
-        # with the `where` method of `DataArray` and `Dataset`: cond and y are
-        # stripped of their own attrs, so the first non-empty attrs at each
-        # level are those of x. Coordinate attrs are left untouched.
-        cond = _drop_own_attrs(cond)
-        y = _drop_own_attrs(y)
-        keep_attrs = _first_non_empty_attrs
+        # keep the attributes of x, the second parameter, by default to
+        # be consistent with the `where` method of `DataArray` and `Dataset`.
+        # Dropping the attrs of cond and y leaves x's as the only non-empty
+        # ones; coordinates keep their own attrs.
+        cond, y = _drop_attrs(cond), _drop_attrs(y)
+        keep_attrs = lambda attrs, context: dict(next(filter(None, attrs), {}))
 
     # alignment for three arguments is complicated, so don't support it yet
     return apply_ufunc(
@@ -1835,11 +1834,8 @@ def where(cond, x, y, keep_attrs=None):
     )
 
 
-def _drop_own_attrs(obj):
-    """Shallow copy of obj without its attrs (and its data variables' attrs).
-
-    Coordinate attrs are kept. Non-xarray objects are returned unchanged.
-    """
+def _drop_attrs(obj):
+    """Shallow copy of obj without its own attrs or its data variables' attrs."""
     from .dataarray import DataArray
     from .dataset import Dataset
 
@@ -1847,15 +1843,9 @@ def _drop_own_attrs(obj):
         return obj
     obj = obj.copy(deep=False)
     obj.attrs = {}
-    if isinstance(obj, Dataset):
-        for name in obj.data_vars:
-            obj.variables[name].attrs = {}
+    for var in getattr(obj, "data_vars", {}).values():
+        var.attrs = {}
     return obj
-
-
-def _first_non_empty_attrs(attrs, context=None):
-    """combine_attrs callable returning a copy of the first non-empty attrs."""
-    return dict(next((a for a in attrs if a), {}))
 
 
 def polyval(coord, coeffs, degree_dim="degree"):
