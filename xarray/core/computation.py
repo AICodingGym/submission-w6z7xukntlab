@@ -1744,10 +1744,7 @@ def where(cond, x, y, keep_attrs=None):
     y : scalar, array, Variable, DataArray or Dataset
         values to choose from where `cond` is False
     keep_attrs : bool or str or callable, optional
-        How to treat attrs. If True, keep the attrs of `x` (and, for a
-        Dataset, the attrs of its data variables); coordinate attrs are
-        kept. If False, drop attrs. A str or callable is passed on to
-        ``apply_ufunc``. Defaults to the global ``keep_attrs`` option.
+        How to treat attrs. If True, keep the attrs of `x`.
 
     Returns
     -------
@@ -1815,18 +1812,18 @@ def where(cond, x, y, keep_attrs=None):
     """
     if keep_attrs is None:
         keep_attrs = _get_keep_attrs(default=False)
-    if isinstance(keep_attrs, (bool, np.bool_)):
-        keep_attrs = bool(keep_attrs)
 
-    # keep the attributes of x, the second parameter, to be consistent with
-    # the `where` method of `DataArray` and `Dataset`. Coordinates keep their
-    # own attrs ("override"); the result's attrs are taken from x afterwards.
-    keep_attrs_of_x = keep_attrs is True
-    if keep_attrs_of_x:
-        keep_attrs = "override"
+    if keep_attrs is True:
+        # keep the attributes of x, the second parameter, to be consistent
+        # with the `where` method of `DataArray` and `Dataset`: cond and y are
+        # stripped of their own attrs, so the first non-empty attrs at each
+        # level are those of x. Coordinate attrs are left untouched.
+        cond = _drop_own_attrs(cond)
+        y = _drop_own_attrs(y)
+        keep_attrs = _first_non_empty_attrs
 
     # alignment for three arguments is complicated, so don't support it yet
-    result = apply_ufunc(
+    return apply_ufunc(
         duck_array_ops.where,
         cond,
         x,
@@ -1837,25 +1834,28 @@ def where(cond, x, y, keep_attrs=None):
         keep_attrs=keep_attrs,
     )
 
-    if keep_attrs_of_x:
-        from .dataset import Dataset
 
-        x_attrs = getattr(x, "attrs", {})
-        if isinstance(result, Dataset):
-            x_vars = x.data_vars if isinstance(x, Dataset) else {}
-            for name in result.data_vars:
-                if name in x_vars:
-                    attrs = x_vars[name].attrs
-                elif isinstance(x, Dataset):
-                    attrs = {}
-                else:
-                    attrs = x_attrs
-                result.variables[name].attrs = dict(attrs)
-            result.attrs = dict(x_attrs) if isinstance(x, Dataset) else {}
-        elif hasattr(result, "attrs"):
-            result.attrs = dict(x_attrs)
+def _drop_own_attrs(obj):
+    """Shallow copy of obj without its attrs (and its data variables' attrs).
 
-    return result
+    Coordinate attrs are kept. Non-xarray objects are returned unchanged.
+    """
+    from .dataarray import DataArray
+    from .dataset import Dataset
+
+    if not isinstance(obj, (Dataset, DataArray, Variable)):
+        return obj
+    obj = obj.copy(deep=False)
+    obj.attrs = {}
+    if isinstance(obj, Dataset):
+        for name in obj.data_vars:
+            obj.variables[name].attrs = {}
+    return obj
+
+
+def _first_non_empty_attrs(attrs, context=None):
+    """combine_attrs callable returning a copy of the first non-empty attrs."""
+    return dict(next((a for a in attrs if a), {}))
 
 
 def polyval(coord, coeffs, degree_dim="degree"):
